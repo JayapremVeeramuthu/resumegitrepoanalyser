@@ -1145,173 +1145,182 @@
     <div class="toast-msg" id="toastMsg">Analysis complete</div>
     <div class="toast-time" id="toastTime">--:--</div>
     </div>
+<script>
+let selectedFile = null;
 
-    <script>
-    /* ── Clock ── */
-    function tick() {
-        const t = new Date().toTimeString().slice(0,8);
-        document.getElementById('clock').textContent = t;
-        document.getElementById('footerTime').textContent = new Date().toLocaleDateString('en-GB', {day:'2-digit',month:'short',year:'numeric'}) + ' ' + t;
-    }
-    tick(); setInterval(tick, 1000);
+/* TEMP FIX AUTH (IMPORTANT) */
+localStorage.setItem("role", "user");
 
-    /* ── Drag & drop ── */
-    const dropZone = document.getElementById('dropZone');
-    dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
-    dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
-    dropZone.addEventListener('drop', e => {
-        e.preventDefault();
-        dropZone.classList.remove('drag-over');
-        const f = e.dataTransfer.files[0];
-        if (f) applyFile(f);
+/* CLOCK */
+function tick() {
+    const t = new Date().toTimeString().slice(0,8);
+    document.getElementById('clock').textContent = t;
+    document.getElementById('footerTime').textContent =
+        new Date().toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'}) + ' ' + t;
+}
+tick(); setInterval(tick, 1000);
+
+/* FILE SELECT */
+function onFileChange(input) {
+    if (input.files[0]) applyFile(input.files[0]);
+}
+
+function applyFile(f) {
+    selectedFile = f;
+
+    document.getElementById('fileName').textContent = f.name;
+    document.getElementById('fileSize').textContent = formatBytes(f.size);
+    document.getElementById('fileSelected').classList.add('show');
+
+    document.getElementById('analyzeBtn').disabled = false;
+}
+
+function formatBytes(b) {
+    if (b < 1024) return b + ' B';
+    if (b < 1024*1024) return (b/1024).toFixed(1) + ' KB';
+    return (b/1024/1024).toFixed(1) + ' MB';
+}
+
+/* ANALYZE */
+async function analyzeResume() {
+
+  if (!selectedFile) {
+    showToast("Upload file first", true);
+    return;
+  }
+
+  document.getElementById('analyzeBtn').disabled = true;
+  document.getElementById('resultPanel').classList.remove('show');
+  document.getElementById('progressWrap').classList.add('show');
+
+  simulateProgress();
+
+  try {
+    const formData = new FormData();
+    formData.append("file", selectedFile);
+
+    const res = await fetch("http://localhost:8080/candidate/upload", {
+      method: "POST",
+      body: formData
     });
 
-    /* ── File select ── */
-    function onFileChange(input) {
-        if (input.files[0]) applyFile(input.files[0]);
-    }
+    const data = await res.json();
+    console.log("API:", data);
 
-    function applyFile(f) {
-        document.getElementById('fileName').textContent = f.name;
-        document.getElementById('fileSize').textContent = formatBytes(f.size);
-        document.getElementById('fileSelected').classList.add('show');
-        document.getElementById('analyzeBtn').disabled = false;
-    }
+    showRealResult(data);
 
-    function formatBytes(b) {
-        if (b < 1024) return b + ' B';
-        if (b < 1024*1024) return (b/1024).toFixed(1) + ' KB';
-        return (b/1024/1024).toFixed(1) + ' MB';
-    }
+  } catch (err) {
+    console.error(err);
+    showToast("Backend error", true);
+    document.getElementById('analyzeBtn').disabled = false;
+  }
+}
 
-    /* ── Analyze ── */
-    function analyzeResume() {
-        document.getElementById('analyzeBtn').disabled = true;
-        document.getElementById('resultPanel').classList.remove('show');
-        const pw = document.getElementById('progressWrap');
-        pw.classList.add('show');
+/* FINAL FIXED RESULT FUNCTION */
+function showRealResult(data) {
 
-        const steps = ['step0','step1','step2','step3'];
-        const pcts  = [20, 45, 75, 100];
-        let si = 0;
+  document.getElementById('progressWrap').classList.remove('show');
+  document.getElementById('resultPanel').classList.add('show');
 
-        steps.forEach(id => document.getElementById(id).className = 'step-item');
+  const score = data.score ?? 0;
+  let skills = data.skills || [];
+  const suggestions = data.suggestions || [];
 
-        function runStep() {
-        if (si >= steps.length) { setTimeout(showResult, 300); return; }
-        document.getElementById(steps[si]).className = 'step-item active';
-        if (si > 0) document.getElementById(steps[si-1]).className = 'step-item done';
-        const fill = document.getElementById('progressFill');
-        const pct  = document.getElementById('progressPct');
-        fill.style.width = pcts[si] + '%';
-        pct.textContent  = pcts[si] + '%';
-        si++;
-        setTimeout(runStep, 700 + Math.random()*400);
-        }
+  /* 🔥 FIX: normalize skills */
+  skills = skills.map(s => {
+    if (typeof s === "string") return s;
+    if (typeof s === "object" && s.name) return s.name;
+    return JSON.stringify(s);
+  });
 
-        runStep();
-    }
+  const cls = score >= 85 ? 'high' : score >= 70 ? 'mid' : 'low';
+  const verdict = score >= 85 ? 'Excellent' : score >= 70 ? 'Good' : 'Needs Work';
 
-    /* ── Show result ── */
-    function showResult() {
-        document.getElementById('progressWrap').classList.remove('show');
-        document.getElementById('resultPanel').classList.add('show');
+  document.getElementById('scoreNum').textContent = score;
+  document.getElementById('scoreNum').className = 'score-num ' + cls;
 
-        const score = Math.floor(Math.random() * 36) + 60;
-        const cls   = score >= 85 ? 'high' : score >= 70 ? 'mid' : 'low';
-        const verdict = score >= 85 ? 'Excellent' : score >= 70 ? 'Good' : 'Needs Work';
+  document.getElementById('scoreVerdict').textContent = verdict;
+  document.getElementById('scoreVerdict').className = 'score-verdict ' + cls;
 
-        const numEl = document.getElementById('scoreNum');
-        numEl.textContent = score;
-        numEl.className   = 'score-num ' + cls;
+  /* breakdown */
+  const breakdown = [
+    { label: "Skills", value: score },
+    { label: "Experience", value: Math.max(score - 10, 0) },
+    { label: "Education", value: Math.max(score - 20, 0) },
+    { label: "Format", value: Math.max(score - 5, 0) }
+  ];
 
-        const vEl = document.getElementById('scoreVerdict');
-        vEl.textContent = verdict;
-        vEl.className   = 'score-verdict ' + cls;
+  document.getElementById('scoreBreakdown').innerHTML =
+    breakdown.map(d => `
+      <div class="breakdown-row">
+        <div class="breakdown-label">${d.label}</div>
+        <div class="breakdown-track">
+          <div class="breakdown-fill ${cls}" style="width:${d.value}%"></div>
+        </div>
+        <div class="breakdown-val">${d.value}%</div>
+      </div>
+    `).join('');
 
-        /* Breakdown */
-        const dims = [
-        { label:'Skills Match', val: Math.floor(score * 0.9 + Math.random()*10), max:30 },
-        { label:'Experience',   val: Math.floor(score * 0.85 + Math.random()*8), max:30 },
-        { label:'Education',    val: Math.floor(score * 0.7 + Math.random()*6),  max:20 },
-        { label:'Format',       val: Math.floor(score * 0.8 + Math.random()*5),  max:20 },
-        ];
+  /* 🔥 FIXED SKILLS RENDER */
+  const skillsGrid = document.getElementById('skillsGrid');
 
-        const bd = document.getElementById('scoreBreakdown');
-        bd.innerHTML = dims.map(d => {
-        const pct = Math.min(100, Math.round(d.val / d.max * 100));
-        const fc  = pct >= 85 ? 'high' : pct >= 60 ? 'mid' : 'low';
-        return `
-            <div class="breakdown-row">
-            <div class="breakdown-label">${d.label}</div>
-            <div class="breakdown-track">
-                <div class="breakdown-fill ${fc}" style="width:0%" data-pct="${pct}"></div>
-            </div>
-            <div class="breakdown-val">${pct}%</div>
-            </div>`;
-        }).join('');
+  if (skills.length > 0) {
+    skillsGrid.innerHTML = skills
+      .map(s => `<span class="tag tag-blue">${s}</span>`)
+      .join('');
+  } else {
+    skillsGrid.innerHTML = `<span class="tag tag-dim">No skills detected</span>`;
+  }
 
-        setTimeout(() => {
-        document.querySelectorAll('.breakdown-fill').forEach(el => {
-            el.style.width = el.dataset.pct + '%';
-        });
-        }, 100);
+  document.getElementById('skillCount').textContent = skills.length + " found";
 
-        /* Skills */
-        const allSkills = ['JavaScript','TypeScript','React','Node.js','Python','SQL','Git','Docker','AWS','REST APIs','Agile','Figma','CSS','HTML','PostgreSQL','Redis','CI/CD','Linux'];
-        const picked = allSkills.sort(() => 0.5 - Math.random()).slice(0, 8 + Math.floor(Math.random()*5));
-        const skillColors = ['tag-blue','tag-teal','tag-warn','tag-dim'];
-        document.getElementById('skillsGrid').innerHTML = picked.map(s =>
-        `<span class="tag ${skillColors[Math.floor(Math.random()*skillColors.length)]}">${s}</span>`
-        ).join('');
-        document.getElementById('skillCount').textContent = picked.length + ' found';
+  /* suggestions */
+  document.getElementById('suggestionList').innerHTML =
+    suggestions.map((s, i) => `
+      <div class="suggestion-item">
+        <span class="sug-index">${String(i+1).padStart(2,'0')}</span>
+        <span class="sug-text">${s}</span>
+      </div>
+    `).join('');
 
-        /* Suggestions */
-        const sugs = [
-        ['Add quantified achievements (e.g. "Reduced load time by 40%")', 'Impact'],
-        ['Include a professional summary at the top of the document', 'Structure'],
-        ['Add links to GitHub, portfolio, or LinkedIn profile', 'Visibility'],
-        ['Expand on recent project descriptions with tech stack details', 'Depth'],
-        ['Use consistent date formatting throughout (MMM YYYY)', 'Format'],
-        ].sort(() => 0.5 - Math.random()).slice(0, 3 + Math.floor(Math.random()*2));
+  showToast("AI Analysis Done 🚀");
 
-        const sColors = { Impact:'tag-warn', Structure:'tag-blue', Visibility:'tag-teal', Depth:'tag-blue', Format:'tag-dim' };
-        document.getElementById('suggestionList').innerHTML = sugs.map(([text, cat], i) => `
-        <div class="suggestion-item">
-            <span class="sug-index">${String(i+1).padStart(2,'0')}</span>
-            <span class="sug-text">${text}</span>
-            <span class="sug-tag"><span class="tag ${sColors[cat]}">${cat}</span></span>
-        </div>`).join('');
+  document.getElementById('analyzeBtn').disabled = false;
+}
 
-        showToast('Analysis complete — score: ' + score + '/100');
-        document.getElementById('analyzeBtn').disabled = false;
-    }
+/* RESET */
+function resetAll() {
+    selectedFile = null;
+    document.getElementById('file').value = '';
+    document.getElementById('fileSelected').classList.remove('show');
+    document.getElementById('analyzeBtn').disabled = true;
+    document.getElementById('progressWrap').classList.remove('show');
+    document.getElementById('resultPanel').classList.remove('show');
+}
 
-    /* ── Reset ── */
-    function resetAll() {
-        document.getElementById('file').value = '';
-        document.getElementById('fileSelected').classList.remove('show');
-        document.getElementById('fileName').textContent = '—';
-        document.getElementById('fileSize').textContent = '—';
-        document.getElementById('analyzeBtn').disabled = true;
-        document.getElementById('progressWrap').classList.remove('show');
-        document.getElementById('resultPanel').classList.remove('show');
-        document.getElementById('targetRole').value = '';
-        document.getElementById('expLevel').value = '';
-    }
+/* TOAST */
+function showToast(msg, isErr = false) {
+    const t = document.getElementById('toast');
+    const color = isErr ? 'red' : 'blue';
 
-    /* ── Toast ── */
-    function showToast(msg, isErr = false) {
-        const t = document.getElementById('toast');
-        const color = isErr ? 'var(--danger)' : 'var(--accent)';
-        t.style.borderColor = color;
-        document.getElementById('toastDot').style.background = color;
-        document.getElementById('toastMsg').style.color = color;
-        document.getElementById('toastMsg').textContent = msg;
-        document.getElementById('toastTime').textContent = new Date().toTimeString().slice(0,8);
-        t.classList.add('show');
-        setTimeout(() => t.classList.remove('show'), 3500);
-    }
-    </script>
+    t.style.borderColor = color;
+    document.getElementById('toastDot').style.background = color;
+    document.getElementById('toastMsg').textContent = msg;
+
+    t.classList.add('show');
+    setTimeout(() => t.classList.remove('show'), 3000);
+}
+
+/* PROGRESS */
+function simulateProgress() {
+  let p = 0;
+  const interval = setInterval(() => {
+    p += 20;
+    document.getElementById('progressFill').style.width = p + '%';
+    document.getElementById('progressPct').textContent = p + '%';
+    if (p >= 100) clearInterval(interval);
+  }, 400);
+}
+</script>
     </body>
     </html>

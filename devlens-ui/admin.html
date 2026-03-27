@@ -1032,6 +1032,13 @@
     t.classList.add('show');
     setTimeout(() => t.classList.remove('show'), 3200);
   }
+
+  const role = localStorage.getItem("role");
+
+if (role !== "ADMIN") {
+  window.location.href = "index.html";
+}
+
 </script>
 </body>
 </html>
